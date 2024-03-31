@@ -10,6 +10,14 @@ import librosa
 import soundfile as sf
 import vocal_remover
 from vocal_remover import inference, lib
+import time
+import crepe
+import math
+from librosa.display import specshow
+
+import warnings
+warnings.filterwarnings("ignore")
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1' 
 
 # mid = mido.MidiFile('midi/wii-sports-resort-main-theme-piano-solo.midi', clip=True)
 
@@ -130,32 +138,69 @@ def remove_rests(melody):
     return melody
 
 
-def extract_pitch_vector(melody, w, d):
+# def extract_pitch_vector(melody, w, d, mod_tempo = False):
+#     # preprocess data
+#     # melody_cleaned = remove_short_notes(convert_to_one_pitch(melody), 100)
+#     # melody_cleaned = remove_rests(convert_to_one_pitch(melody))
+#     melody_cleaned = melody
+
+#     tempo_modifiers = [1.0]
+
+#     if mod_tempo:
+#         tempo_modifiers = [0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7]
+
+#     pitch_vectors = []
+
+#     for t in tempo_modifiers:
+
+#         if t == 1.0: m = melody_cleaned
+#         else: m = stretch_or_squeeze_melody(melody_cleaned, t)
+
+#         for i in range(0, len(m) - w + 1, d):
+#             window = m[i:i+w]
+#             p_i = np.zeros((w))
+#             for j in range(w):
+#                 nonzero = window[j].nonzero()[0]
+#                 if len(nonzero) == 0:
+#                     p_i[j] = 0
+#                 else:
+#                     p_i[j] = nonzero[0]
+#             # normalize pitch vector
+#             print(p_i)
+#             p_i -= round(np.mean(p_i))
+#             print(p_i)
+#             pitch_vectors.append(p_i)
+
+#     print(pitch_vectors)
+
+#     return np.array(pitch_vectors)
+
+def extract_pitch_vector(melody, w, d, mod_tempo = False):
     # preprocess data
-    melody_cleaned = remove_rests(convert_to_one_pitch(melody))
+    # melody_cleaned = remove_short_notes(convert_to_one_pitch(melody), 100)
+    # melody_cleaned = remove_rests(convert_to_one_pitch(melody))
+    melody_cleaned = np.copy(melody)
+
+    tempo_modifiers = [1.0]
+
+    if mod_tempo:
+        tempo_modifiers = [0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7]
 
     pitch_vectors = []
 
-    for i in range(0, len(melody_cleaned) - w + 1, d):
-        window = melody_cleaned[i:i+w]
-        p_i = np.zeros((w))
-        for j in range(w):
-            nonzero = window[j].nonzero()[0]
-            if len(nonzero) == 0:
-                p_i[j] = 0
-            else:
-                p_i[j] = nonzero[0]
-        # normalize pitch vector
-        p_i -= round(np.mean(p_i))
-        pitch_vectors.append(p_i)
+    for t in tempo_modifiers:
+
+        if t == 1.0: m = melody_cleaned
+        else: m = stretch_or_squeeze_melody(melody_cleaned, t)
+
+        for i in range(0, len(m) - w + 1, d):
+            window = np.copy(m[i:i+w])
+            window -= round(np.mean(window))
+            pitch_vectors.append(window)
 
     return np.array(pitch_vectors)
 
 # pitch_vectors = extract_pitch_vector(result_array, 500, 250)
-
-def melodic_similarity(p1, p2):
-    dist = np.linalg.norm(p1 - p2)
-    return dist
 
 # IMPLEMENT NN SEARCH WITH LOCALITY SENSITIVE HASHING
 
@@ -214,102 +259,298 @@ def melodic_similarity(p1, p2):
 # ax[3].plot(range(len(my_pitch_vectors_2[0])), my_pitch_vectors_2[0], marker='.', markersize=1, linestyle='')
 # plt.show()
 
+def extract_midi_notes_nn(audio_file, step_size=10, plot=False):
+
+    y, sr = librosa.load(audio_file)
+    time, notes, confidence, _ = crepe.predict(y, sr, viterbi=True, step_size=step_size, model_capacity="medium")
+
+    if plot:   
+        specshow(librosa.amplitude_to_db(np.abs(librosa.cqt(y, hop_length=1024, sr=sr))**2))
+        notes = librosa.hz_to_midi(notes + np.finfo(float).eps).round()
+        plt.step(np.arange(len(notes)), 
+                notes - librosa.note_to_midi('C1'), 
+                marker='|',
+                label='Melody')
+        plt.title('CQT spectrogram with melody overlay')
+        plt.legend()
+        plt.show()
+    
+    notes = librosa.hz_to_midi(notes)
+    return notes
+
 def extract_vocals(input_file, output_filepath):
     inference.main(input_file, output_filepath)
 
-def build_database(audio_dir, output_dir, w, d):
+def build_database(audio_dir, output_dir, w, d, sz, remove_vocals=True):
 
     print("extracting melodies...")
+
+    notes_and_names = []
+    song_names = []
+
     for infile in glob.iglob(audio_dir + '/*'):
         song_name = (infile.split('/')[-1]).split('.')[0]
         vfile = output_dir + '/' + str(song_name) + ".wav"
         outfile = output_dir + '/' + str(song_name) + ".mid"
-        # extract midi melody and add to output_dir directory
-        extract_vocals(infile, vfile)
-        extract_midi.audio_to_midi_melodia(vfile, outfile, 100)
-        os.remove(vfile)
+        # # extract midi melody and add to output_dir directory
+        if remove_vocals and song_name != "Let It Be Piano 1":
+            extract_vocals(infile, vfile)
+        else:
+            vfile = infile
+        # extract_midi.audio_to_midi_melodia(infile, outfile, 100)
+        notes = extract_midi_notes_nn(vfile, step_size=sz)
+        notes_and_names.append((notes, song_name))
+        song_names.append(song_name)
+        if remove_vocals and song_name != 'Let It Be Piano 1': os.remove(vfile)
     
     # build array of pitch vectors and song names
         
     pitch_vectors = []
-    song_names = []
 
     print("generating pitch vectors...")
-    for m in glob.iglob(output_dir + '/*'):
-        song_name = (m.split('/')[-1]).split('.')[0]
-        print(song_name)
-        midi_data = mido.MidiFile(m, clip=True)
-        midi_array = mid2arry(midi_data)
-        pitch_vectors.append(extract_pitch_vector(midi_array, w, d))
-        song_names.append(song_name)
+    for i in range(len(notes_and_names)):
+        print(notes_and_names[i][1])
+        notes = notes_and_names[i][0]
+        pitch_vec = extract_pitch_vector(notes, w, d)
+        for j in range(len(pitch_vec)):
+            pitch_vectors.append([pitch_vec[j], song_names[i], j*d])
 
     print("saving pitch vectors...")
-    for i in range(len(pitch_vectors)):
-        song_name = song_names[i]
-        np.save('saved/pitch_vectors/' + str(song_name) + '.npy', np.array(pitch_vectors[i]))
+    np.save('saved/pitch_vectors.npy', np.array(pitch_vectors))
     np.save('saved/song_name_database.npy', np.array(song_names))
     print("complete!")
 
-def query(hum_audio, w, d):
+def stretch_or_squeeze_melody(melody, ratio):    
+    
+    # determine distirbtion
+    distribution = [] # (note, duration)
+
+    prev = melody[0]
+    cnt = 0
+    for p in melody:
+        if (p != prev).any():
+            distribution.append((prev, cnt))
+            cnt = 1
+        else:
+            cnt += 1
+        prev = p
+    distribution.append((prev, cnt))
+
+    # recreate pitch vector
+    new_pitch_vector = []
+
+    for note, dur in distribution:
+        new_duration = round(dur * ratio)
+        for _ in range(new_duration):
+            new_pitch_vector.append(note)
+
+    return new_pitch_vector
+
+def query(hum_audio, w, d, sz, plot=False):
     # takes in a hummed audio and returns the top 10 closest songs by pitch vector similarity
 
     song_name_database = np.load('saved/song_name_database.npy')
+    pitch_vector_info = np.load('saved/pitch_vectors.npy', allow_pickle=True)
 
-    pitch_vector_database = []
+    notes = extract_midi_notes_nn(hum_audio, step_size=sz)
+    query_pitch_vectors = extract_pitch_vector(notes, w, d, mod_tempo=False)
 
-    for song in song_name_database:
-        pitch_vector_database.append(np.load('saved/pitch_vectors/' + str(song) + '.npy', allow_pickle=True))
+    closest_songs = {}
 
-    # convert to midi audio
-    song_name = (hum_audio.split('/')[-1]).split('.')[0]
-    print(song_name)
-    extract_midi.audio_to_midi_melodia(hum_audio, 'queries/' + str(song_name) + ".mid", 100)
-    midi_data = mido.MidiFile('queries/' + str(song_name) + ".mid", clip=True)
-    midi_array = mid2arry(midi_data)
-    query_pitch_vectors = extract_pitch_vector(midi_array, w, d)
+    k = 5
 
-    # compute similarity:
-    min_distances = []
-    for p in pitch_vector_database:
-        d = []
-        for q in query_pitch_vectors:
-            dist = np.linalg.norm(p - q, axis=1)
-            # closest_indices = np.argsort(dist)[:5]
-            d.append(min(dist))
-        min_distances.append(np.mean(d))
+    for i in range(len(query_pitch_vectors)):
+        query_vector = query_pitch_vectors[i]
+        closest = []
+
+        spread = max(query_vector) - min(query_vector)
+
+        for song_vector_info in pitch_vector_info:
+            song_vector = np.array(song_vector_info[0])
+            song_name = song_vector_info[1]
+            song_index = song_vector_info[2]
+
+            distance = np.linalg.norm(query_vector - song_vector) / spread
+            closest.append((song_name, song_index, distance, song_vector))
+
+        closest.sort(key=lambda x: x[2])
+        closest_songs[tuple(query_vector)] = (closest[:k], i)
+
+    final_scores = {}
+
+    for query_vector, closest_info in closest_songs.items():
+        closest, i = closest_info
+        for song_info in closest:
+            if song_info[0] not in final_scores:
+                final_scores[song_info[0]] = [0, 0]
+            final_scores[song_info[0]][0] += song_info[2]
+            final_scores[song_info[0]][1] += 1
+
+    # for query_vector, closest_info in closest_songs.items():
+    #     closest, i = closest_info
+    #     if plot: print("For query pitch vector:", i)
+    #     for song_info in closest:
+    #         if plot: print(f"Song: {song_info[0]}, Index: {song_info[1]}, Distance: {song_info[2]}")
+    #         closest_to_query.append((distance, song_info, i))
+    #         if plot:
+    #             fig, ax = plt.subplots(2)
+    #             ax[0].plot(range(len(query_vector)), query_vector, marker='.', markersize=1, linestyle='')
+    #             ax[1].plot(range(len(song_info[3])), song_info[3], marker='.', markersize=1, linestyle='')
+    #             plt.show();
+    #     if plot: print()
+
+    
+    # closest_to_query = sorted(closest_to_query, key=lambda x: x[0])
+
+    # for k in range(10):
+    #     _, song_info, i = closest_to_query[k]
+    #     if song_info[0] not in final_scores:
+    #         final_scores[song_info[0]] = [0, 0]
+    #     final_scores[song_info[0]][0] += song_info[2]
+    #     final_scores[song_info[0]][1] += 1
+
+    max_i = 0
+    max_d = 0
+    for k, v in final_scores.items():
+        d, i = v
+        max_i = max(i, max_i)
+        max_d = max(d, max_d)
+
+    w1 = 0.90
+    w2 = 0.10
+
+    for k, v in final_scores.items():
+        d, i = v
+        d = (d/i) / max_d
+        i = i / max_i
+        final_scores[k] = (w1 * d - w2 * i + w2) * 10
+
+    final_scores = sorted(final_scores.items(), key=lambda x:x[1])
+
+    print("FINAL RANKINGS:")
+    for i in range(len(final_scores)):
+        song, dist = final_scores[i]
+        print(str(i+1) + ": " + str(song) + ", Distance: " + str(dist))
+
+    # # convert to midi audio
+    # song_name = (hum_audio.split('/')[-1]).split('.')[0]
+    # # extract_midi.audio_to_midi_melodia(hum_audio, 'queries/' + str(song_name) + ".mid", 100)
+    # # midi_data = mido.MidiFile('queries/' + str(song_name) + ".mid", clip=True)
+    # # midi_array = mid2arry(midi_data)
+    # notes = extract_midi_notes_nn(hum_audio)
+    # query_pitch_vectors = extract_pitch_vector(notes, w, d)
+
+    # # compute similarity:
+    # min_distances = []
+    # for p in pitch_vector_database:
+    #     d = []
+    #     for q in query_pitch_vectors:
+    #         dist = np.linalg.norm(p - q, axis=1)
+    #         num_to_compare = round(len(query_pitch_vectors) * 0.75)
+    #         closest_indices = np.argsort(dist)[:num_to_compare]
+    #         d.append(np.mean(dist))
+    #     d.sort()
+    #     min_distances.append(np.mean(d[:-2]))
+    
+    # num_to_return = min(10, len(song_name_database))
+    # closest_indices = np.argsort(min_distances)[:num_to_return]
+    # closest_songs = song_name_database[closest_indices]
+
+    # # print results
+    # for i in range(len(closest_songs)):
+    #     print(str(i + 1) + ": " + str(closest_songs[i]) + ", distance = " + str(min_distances[closest_indices[i]]))
+    # print("----------")
+
+    # best_candidates = []
+
+def plot_pitch_vectors(audio_file, num_to_print):
+    n = extract_midi_notes_nn(audio_file, plot=True)
+    p = extract_pitch_vector(n, w, d)
+    _, ax = plt.subplots(num_to_print + 1)
+    for i in range(num_to_print):
+        ax[i].plot(range(len(p[i])), p[i], marker='.', markersize=1, linestyle='')
+    ax[-1].plot(range(len(n)), n, marker='.', markersize=1, linestyle='')
+    plt.show()
+
+    # for k in range(len(query_pitch_vectors)):
+    #     q = query_pitch_vectors[k]
+    #     d = []
+    #     candidates = [[]]
+    #     for i in range(len(pitch_vector_database)):
+    #         p = pitch_vector_database[i]
+    #         song = song_name_database[i]
+    #         dist = np.linalg.norm(p - q, axis=1)
+    #         closest_indices = np.argsort(dist)[:5]
+    #         d = np.concatenate((d, dist[closest_indices]))
+    #         print(len(d))
+    #         c = p[closest_indices]
+    #         c_with_label = []
+    #         for j in range(len(c)):
+    #             c_with_label.append((c[j], song, q, closest_indices[j], k))
+    #         if i == 0:
+    #             candidates = c_with_label
+    #         else:
+    #             candidates = np.concatenate((candidates, c_with_label))
+    #     i = np.argsort(d)
+    #     candidates = candidates[i]
+    #     best_candidates.append((d[0], candidates[0]))
+    #     best_candidates.append((d[1], candidates[1]))
+    #     best_candidates.append((d[2], candidates[2]))
+    #     best_candidates.append((d[3], candidates[3]))
+    #     best_candidates.append((d[4], candidates[4]))
         
-    num_to_return = min(10, len(song_name_database))
-    closest_indices = np.argsort(min_distances)[:num_to_return]
-    closest_songs = song_name_database[closest_indices]
+    # best_candidates.sort(key=lambda x: x[0])
 
     # print results
-    for i in range(len(closest_songs)):
-        print(str(i + 1) + ": " + str(closest_songs[i]) + ", distance = " + str(min_distances[closest_indices[i]]))
-    print("----------")
+    # for i in range(len(best_candidates)):
+    #     d, cand_info = best_candidates[i]
+    #     print(str(i + 1) + ": " + str(cand_info[1]) + ", distance = " + str(d) + ", p = " + str(cand_info[0]) + ", q = " + str(cand_info[2]) + ", i = " + str(cand_info[3]) + ", k = " + str(cand_info[4]))
+    # print("----------")
+
+    # fig, ax = plt.subplots(4)
+    # ax[0].plot(range(len(candidates[0][2])), candidates[0][2], marker='.', markersize=1, linestyle='')
+    # ax[1].plot(range(len(candidates[0][0])), candidates[0][0], marker='.', markersize=1, linestyle='')
+    # ax[2].plot(range(len(candidates[1][2])), candidates[1][2], marker='.', markersize=1, linestyle='')
+    # ax[3].plot(range(len(candidates[1][0])), candidates[1][0], marker='.', markersize=1, linestyle='')
+    # plt.show()
+
 
     # return min_distances[closest_indices], closest_songs
 
 # TEST!
 
-w, d = 5000, 2500
-# build_database('song_database', 'midi_database', w, d)
-# query("song_database/Let It Be - The Beatles.mp3", w, d)
-# query("song_database/Titi Me Pregunto - Bad Bunny.mp3", w, d)
-# query("song_database/Love Story - Taylor Swift.mp3", w, d)
-# query("Love Story (Taylor's Version) - Taylor Swift.mp3", w, d)
-# print("LET IT BE TESTS:")
-# query("Let It Be Hum 1.mp3", w, d)
-# query("Let It Be Hum 2.mp3", w, d)
-# query("Let It Be Piano 1.mp3", w, d)
-# query("Let It Be Piano 2.mp3", w, d)
 
-# print("LOVE STORY TESTS:")
-# query("Love Story Hum 1.mp3", w, d)
-# query("Love Story Hum 2.mp3", w, d)
-# query("Love Story Piano 1.mp3", w, d)
+# w_vals = [1000, 2500, 5000, 10000]
+# d_mults = [0.75, 0.5, 0.25, 0.1]
 
-query('New Recording 15.mp3', w, d)
+# for w in w_vals:
+#     for d_m in d_mults:
+# d = int(w*d_m)
+    
+# print("NEW TEST =========================")
 
+sz = 50
+
+w = round(6 * 1000 / sz)
+d = round(1.25 * 1000 / sz)
+
+print("w: " + str(w) + ", d: " + str(d))
+# build_database('song_database_real', 'midi_database', w, d, sz, remove_vocals=True)
+# query("HumScale.mp3", w, d)
+# query("TwinkleHum.mp3", w, d)
+# query("New Recording 23.mp3", w, d, plot=True)
+# plot_pitch_vectors("New Recording 23.mp3", 3)
+print("LET IT BE TESTS:")
+query("Let It Be Hum 1.mp3", w, d, sz)
+query("Let It Be Hum 2.mp3", w, d, sz)
+query("song_database_real/Let It Be Piano 1.mp3", w, d, sz, plot=False)
+query("Let It Be Piano 2.mp3", w, d, sz)
+print("LOVE STORY TESTS:")
+query("Love Story Hum 1.mp3", w, d, sz, plot=False)
+query("Love Story Hum 2.mp3", w, d, sz)
+query("Love Story Piano 1.mp3", w, d, sz)
+print("LOLA TEST:")
+query('New Recording 15.mp3', w, d, sz)
 
 # empty query data after use
 # files = glob.glob('queries/*')
@@ -317,3 +558,49 @@ query('New Recording 15.mp3', w, d)
 #     os.remove(f)
 
 # extract_vocals('Let It Be - The Beatles.mp3', '/Users/naveen/cs1952q/query-by-humming/vocal_tests/Let It Be - The Beatles [v].wav')
+
+# compute similarity:
+# song_name_database = np.load('saved/song_name_database.npy')
+
+# pitch_vector_database = []
+
+# for song in song_name_database:
+#     pitch_vector_database.append(np.load('saved/pitch_vectors/' + str(song) + '.npy', allow_pickle=True))
+# min_distances = []
+# for p in pitch_vector_database:
+#     d = []
+#     for q in pitch_vector_database[1]:
+#         dist = np.linalg.norm(p - q, axis=1)
+#         # closest_indices = np.argsort(dist)[:5]
+#         d.append(min(dist))
+    
+#     min_distances.append(np.mean(d))
+    
+# num_to_return = min(10, len(song_name_database))
+# closest_indices = np.argsort(min_distances)[:num_to_return]
+# closest_songs = song_name_database[closest_indices]
+
+# # print results
+# for i in range(len(closest_songs)):
+#     print(str(i + 1) + ": " + str(closest_songs[i]) + ", distance = " + str(min_distances[closest_indices[i]]))
+# print("----------")
+
+# melody = mido.MidiFile('midi_database/Let It Be - The Beatles.mid', clip=True)
+# melody = mido.MidiFile('midi_database/Love Story - Taylor Swift.mid', clip=True)
+# mel2 = mido.MidiFile('queries/Let It Be Piano 1.mid', clip=True)
+# m = mid2arry(melody)
+# m2 = mid2arry(mel2)
+# p = extract_pitch_vector(m, 10000, 2500)
+# p3 = extract_pitch_vector(m2, 10000, 2500)
+# p2 = extract_pitch_vector(m, 300000, 10000)
+
+# print(np.linalg.norm(p3 - p[89]))
+# print(np.linalg.norm(p3))
+
+# fig, ax = plt.subplots(5)
+# ax[0].plot(range(len(p[0])), p[0], marker='.', markersize=1, linestyle='')
+# ax[1].plot(range(len(p2[0])), p2[0], marker='.', markersize=1, linestyle='')
+# ax[2].plot(range(len(m)), np.multiply(np.where(m>0, 1, 0), range(1, 89)), marker='.', markersize=1, linestyle='')
+# ax[3].plot(range(len(m2)), np.multiply(np.where(m2>0, 1, 0), range(1, 89)), marker='.', markersize=1, linestyle='')
+# ax[4].plot(range(len(p3[13])), p3[13], marker='.', markersize=1, linestyle='')
+# plt.show()
