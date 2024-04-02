@@ -4,7 +4,7 @@ from midiutil import MIDIFile
 from matplotlib import pyplot as plt
 import mido
 from mido import MidiFile, Message, MidiTrack
-from query_by_humming import extract_vocals, mid2arry
+from query_by_humming_rough import extract_vocals, mid2arry
 import sounddevice as sd
 import time
 import crepe

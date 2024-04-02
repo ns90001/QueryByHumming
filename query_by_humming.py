@@ -6,10 +6,8 @@ import librosa
 from vocal_remover import inference
 import crepe
 from librosa.display import specshow
-
 import warnings
-warnings.filterwarnings("ignore")
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1' 
+from e2lsh import E2LSH
 
 def extract_pitch_vector(melody, w, d, mod_tempo = False):
 
@@ -178,7 +176,7 @@ def query(hum_audio, w, d, sz, plot=False):
         song, dist = final_scores[i]
         print(str(i+1) + ": " + str(song) + ", Distance: " + str(dist))
 
-def plot_pitch_vectors(audio_file, num_to_print):
+def plot_pitch_vectors(audio_file, num_to_print, w, d):
     n = extract_midi_notes_nn(audio_file, plot=True)
     p = extract_pitch_vector(n, w, d)
     _, ax = plt.subplots(num_to_print + 1)
@@ -188,6 +186,9 @@ def plot_pitch_vectors(audio_file, num_to_print):
     plt.show()
 
 def main():
+    warnings.filterwarnings("ignore")
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1' 
+
     sz = 50
     w = round(6 * 1000 / sz)
     d = round(1.25 * 1000 / sz)
