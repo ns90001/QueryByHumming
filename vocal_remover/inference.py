@@ -104,7 +104,7 @@ class Separator(object):
 
 def main(input, output):
     p = argparse.ArgumentParser()
-    p.add_argument('--gpu', '-g', type=int, default=-1)
+    p.add_argument('--gpu', '-g', type=int, default=0)
     p.add_argument('--pretrained_model', '-P', type=str, default='vocal_remover/models/baseline.pth')
     # p.add_argument('--input', '-i', required=True)
     p.add_argument('--sr', '-r', type=int, default=44100)
@@ -113,7 +113,7 @@ def main(input, output):
     p.add_argument('--batchsize', '-B', type=int, default=4)
     p.add_argument('--cropsize', '-c', type=int, default=256)
     p.add_argument('--output_image', '-I', action='store_true')
-    p.add_argument('--tta', '-t', action='store_true')
+    # p.add_argument('--tta', '-t', action='store_true')
     p.add_argument('--postprocess', '-p', action='store_true')
     p.add_argument('--output_dir', '-o', type=str, default="")
     args = p.parse_args()
@@ -153,10 +153,12 @@ def main(input, output):
         postprocess=args.postprocess
     )
 
-    if args.tta:
-        y_spec, v_spec = sp.separate_tta(X_spec)
-    else:
-        y_spec, v_spec = sp.separate(X_spec)
+    # if args.tta:
+    #     y_spec, v_spec = sp.separate_tta(X_spec)
+    # else:
+    #     y_spec, v_spec = sp.separate(X_spec)
+
+    y_spec, v_spec = sp.separate(X_spec)
 
     print('inverse stft of vocals...', end=' ')
     wave = spec_utils.spectrogram_to_wave(v_spec, hop_length=args.hop_length)
