@@ -1,14 +1,18 @@
 import numpy as np
 
 class MLSH:
-    def __init__(self, d, b, r, data):
+    def __init__(self, d, b, r, data, pre_loaded_buckets=None):
         self.d = d
         self.b = b
         self.r = r
         self.data = data
         self.hash_functions = self.generate_hash_functions()
-        self.buckets = {}
-        self.load_data()
+        if pre_loaded_buckets is None:
+            self.buckets = {}
+            self.load_data()
+        else:
+            self.buckets = pre_loaded_buckets
+        
 
     def generate_hash_functions(self):
         h = [None] * (self.b * self.r)
@@ -25,6 +29,9 @@ class MLSH:
                 self.buckets[id] = [i]
             else:
                 self.buckets[id].append(i)
+    
+    def get_buckets(self):
+        return self.buckets
     
     def get_candidates(self, query_vector):
         id = tuple(h(query_vector) for h in self.hash_functions)
