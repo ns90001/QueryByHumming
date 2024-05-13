@@ -10,10 +10,16 @@
 
 *.wav
 *.m4a
-*.mp3
 *.mp4
 *.flac
 
 *~
 .vscode/
 venv/
+
+# Exclude all mp3 files
+*.mp3
+
+# But include mp3 files in the website directory
+!website/**/*.mp3
+

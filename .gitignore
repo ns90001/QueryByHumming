@@ -1,4 +1,27 @@
-*.mid
-*.mp3
-*.wav
+*.pyc
 *.npy
+*.npz
+*.pth
+*.json
+*.log
+
+*.jpg
+*.png
+
+*.wav
+*.m4a
+*.mp4
+*.flac
+
+*~
+.vscode/
+venv/
+
+# Exclude all mp3 files
+*.mp3
+*.mid
+
+*queries
+
+# But include mp3 files in the website directory
+!website/**/*.mp3
